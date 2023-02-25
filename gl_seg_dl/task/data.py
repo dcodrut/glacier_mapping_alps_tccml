@@ -5,6 +5,9 @@ import xarray as xr
 import pytorch_lightning as pl
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+from tqdm import tqdm
+
+from gl_seg_dl.utils.sampling_utils import get_hdt_glacier_patches
 
 
 def extract_inputs(ds, fp):
@@ -67,13 +70,37 @@ class GlSegPatchDataset(Dataset):
         return len(self.fp_list)
 
 
+class GlSegDataset(GlSegPatchDataset):
+    def __init__(self, fp):
+        self.fp = fp
+        super().__init__(folder=None, fp_list=[fp])
+
+        # get all possible patches for the glacier
+        self.nc = xr.open_dataset(fp, decode_coords='all')
+        self.patches_df = get_hdt_glacier_patches(
+            self.nc, patch_radius=128, sampling_step=64, add_center=False, add_centroid=True)
+
+    def __getitem__(self, idx):
+        patch_shp = self.patches_df.iloc[idx:idx + 1]
+        nc_patch = self.nc.rio.clip(patch_shp.geometry)
+        data = extract_inputs(ds=nc_patch, fp=self.fp)
+
+        # add information regarding the location of the patch w.r.t. the entire glacier
+        data['patch_info'] = {k: patch_shp.iloc[0][k] for k in ['x_center', 'y_center', 'bounds_px']}
+
+        return data
+
+    def __len__(self):
+        return len(self.patches_df)
+
+
 class GlSegDataModule(pl.LightningDataModule):
     def __init__(self,
                  data_root_dir: Union[Path, str],
                  train_dir_name: str,
                  val_dir_name: str,
                  test_dir_name: str,
-                 rasters_dir_name: str,
+                 rasters_dir: str,
                  train_batch_size: int = 16,
                  val_batch_size: int = 32,
                  test_batch_size: int = 32,
@@ -82,10 +109,12 @@ class GlSegDataModule(pl.LightningDataModule):
                  pin_memory: bool = False):
         super().__init__()
         self.data_root_dir = Path(data_root_dir)
+        assert self.data_root_dir.exists()
+
         self.train_dir_name = train_dir_name
         self.val_dir_name = val_dir_name
         self.test_dir_name = test_dir_name
-        self.rasters_dir_name = rasters_dir_name
+        self.rasters_dir = rasters_dir
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         self.test_batch_size = test_batch_size
@@ -105,6 +134,24 @@ class GlSegDataModule(pl.LightningDataModule):
             self.valid_ds = GlSegPatchDataset(self.data_root_dir / self.val_dir_name)
         if stage == 'test':
             self.test_ds = GlSegPatchDataset(self.data_root_dir / self.test_dir_name)
+
+    def setup_dl_per_glacier(self, gid_list=None):
+        # get the directory of the full glacier cubes
+        cubes_dir = Path(self.rasters_dir)
+        assert cubes_dir.exists()
+
+        # get all glaciers
+        cubes_fp = sorted(list(cubes_dir.glob('**/*.nc')))
+
+        # filter the glaciers by id, if needed
+        if gid_list is not None:
+            cubes_fp = list(filter(lambda f: f.parent.parent.name in gid_list, cubes_fp))
+
+        test_ds_list = []
+        for fp in tqdm(cubes_fp, desc='Preparing datasets per glacier'):
+            test_ds_list.append(GlSegDataset(fp=fp))
+
+        return test_ds_list
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -135,3 +182,20 @@ class GlSegDataModule(pl.LightningDataModule):
             pin_memory=self.pin_memory,
             drop_last=False
         )
+
+    def test_dataloaders_per_glacier(self, gid_list):
+        test_ds_list = self.setup_dl_per_glacier(gid_list=gid_list)
+
+        dloaders = []
+        for ds in test_ds_list:
+            dloaders.append(
+                DataLoader(
+                    dataset=ds,
+                    batch_size=self.test_batch_size,
+                    shuffle=False,
+                    num_workers=self.num_workers,
+                    pin_memory=self.pin_memory,
+                    drop_last=False
+                )
+            )
+        return dloaders
