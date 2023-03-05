@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Union
 
+import pandas as pd
 import xarray as xr
 import pytorch_lightning as pl
 from torch.utils.data import Dataset, DataLoader
@@ -43,8 +44,55 @@ def extract_inputs(ds, fp):
     return data
 
 
+def standardize_inputs(data, stats_df, scale_each_band):
+    band_data_sdf = stats_df[stats_df.var_name.apply(lambda s: 'band' in s)]
+    mu = band_data_sdf.mu.values[:len(data['s2_bands'])]
+    stddev = band_data_sdf.stddev.values[:len(data['s2_bands'])]
+
+    if not scale_each_band:
+        mu[:] = mu.mean()
+        stddev[:] = stddev.mean()
+
+    data['s2_bands'] -= mu[:, None, None]
+    data['s2_bands'] /= stddev[:, None, None]
+
+    # do the same for the static variables
+    for v in ['dem']:
+        sdf = stats_df[stats_df.var_name == v]
+        mu = sdf.mu.values[0]
+        stddev = sdf.stddev.values[0]
+        data[v] -= mu
+        data[v] /= stddev
+
+    return data
+
+
+def minmax_scale_inputs(data, stats_df, scale_each_band):
+    band_data_sdf = stats_df[stats_df.var_name.apply(lambda s: 'band' in s)]
+    vmin = band_data_sdf.vmin.values[:len(data['s2_bands'])]
+    vmax = band_data_sdf.vmax.values[:len(data['s2_bands'])]
+
+    if not scale_each_band:
+        vmin[:] = vmin.min()
+        vmax[:] = vmax.max()
+
+    data['s2_bands'] -= vmin[:, None, None]
+    data['s2_bands'] /= (vmax[:, None, None] - vmin[:, None, None])
+
+    # do the same for the static variables
+    for v in ['dem']:
+        sdf = stats_df[stats_df.var_name == v]
+        vmin = sdf.vmin.values[0]
+        vmax = sdf.vmax.values[0]
+        data[v] -= vmin
+        data[v] /= (vmax - vmin)
+
+    return data
+
+
 class GlSegPatchDataset(Dataset):
-    def __init__(self, folder=None, fp_list=None):
+    def __init__(self, folder=None, fp_list=None, standardize_data=False, minmax_scale_data=False, scale_each_band=True,
+                 data_stats_df=None):
         assert folder is not None or fp_list is not None
 
         if folder is not None:
@@ -56,6 +104,11 @@ class GlSegPatchDataset(Dataset):
             assert all([Path(fp).exists() for fp in fp_list])
             self.fp_list = fp_list
 
+        self.standardize_data = standardize_data
+        self.minmax_scale_data = minmax_scale_data
+        self.scale_each_band = scale_each_band
+        self.data_stats_df = data_stats_df
+
     def __getitem__(self, idx):
         # read the current file
         fp = self.fp_list[idx]
@@ -63,6 +116,14 @@ class GlSegPatchDataset(Dataset):
 
         # extract the inputs
         data = extract_inputs(ds=ds, fp=fp)
+
+        # standardize/scale the inputs if needed
+        if self.standardize_data or self.minmax_scale_data:
+            assert self.standardize_data != self.minmax_scale_data
+        if self.standardize_data:
+            data = standardize_inputs(data, stats_df=self.data_stats_df, scale_each_band=self.scale_each_band)
+        if self.minmax_scale_data:
+            data = minmax_scale_inputs(data, stats_df=self.data_stats_df, scale_each_band=self.scale_each_band)
 
         return data
 
@@ -101,6 +162,10 @@ class GlSegDataModule(pl.LightningDataModule):
                  val_dir_name: str,
                  test_dir_name: str,
                  rasters_dir: str,
+                 standardize_data: bool,
+                 minmax_scale_data: bool,
+                 scale_each_band: bool,
+                 data_stats_fn: str,
                  train_batch_size: int = 16,
                  val_batch_size: int = 32,
                  test_batch_size: int = 32,
@@ -115,6 +180,9 @@ class GlSegDataModule(pl.LightningDataModule):
         self.val_dir_name = val_dir_name
         self.test_dir_name = test_dir_name
         self.rasters_dir = rasters_dir
+        self.standardize_data = standardize_data
+        self.minmax_scale_data = minmax_scale_data
+        self.scale_each_band = scale_each_band
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         self.test_batch_size = test_batch_size
@@ -128,12 +196,38 @@ class GlSegDataModule(pl.LightningDataModule):
         self.test_ds = None
         self.test_ds_list = None
 
+        # prepare the standardization constants if needed
+        self.data_stats_df = None
+        if self.standardize_data or self.minmax_scale_data:
+            data_stats_fp = Path(self.data_root_dir / data_stats_fn)
+            assert data_stats_fp.exists()
+
+            self.data_stats_df = pd.read_csv(data_stats_fp)
+
     def setup(self, stage: str = None):
         if stage == 'fit' or stage is None:
-            self.train_ds = GlSegPatchDataset(self.data_root_dir / self.train_dir_name)
-            self.valid_ds = GlSegPatchDataset(self.data_root_dir / self.val_dir_name)
+            self.train_ds = GlSegPatchDataset(
+                folder=self.data_root_dir / self.train_dir_name,
+                standardize_data=self.standardize_data,
+                minmax_scale_data=self.minmax_scale_data,
+                scale_each_band=self.scale_each_band,
+                data_stats_df=self.data_stats_df
+            )
+            self.valid_ds = GlSegPatchDataset(
+                folder=self.data_root_dir / self.val_dir_name,
+                standardize_data=self.standardize_data,
+                minmax_scale_data=self.minmax_scale_data,
+                scale_each_band=self.scale_each_band,
+                data_stats_df=self.data_stats_df
+            )
         if stage == 'test':
-            self.test_ds = GlSegPatchDataset(self.data_root_dir / self.test_dir_name)
+            self.test_ds = GlSegPatchDataset(
+                folder=self.data_root_dir / self.test_dir_name,
+                standardize_data=self.standardize_data,
+                minmax_scale_data=self.minmax_scale_data,
+                scale_each_band=self.scale_each_band,
+                data_stats_df=self.data_stats_df
+            )
 
     def setup_dl_per_glacier(self, gid_list=None):
         # get the directory of the full glacier cubes
