@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import numpy as np
+import geopandas as gpd
 import pytorch_lightning as pl
 import yaml
 from tqdm import tqdm
@@ -85,14 +86,22 @@ def test_model(settings: dict, split: str, test_per_glacier: bool, checkpoint: s
         logger.info(f'results = {results}')
     else:
         dir_name = {'s_train': dm.train_dir_name, 's_valid': dm.val_dir_name, 's_test': dm.test_dir_name}[split]
-        dir_fp = dm.data_root_dir / dir_name
-        logger.info(f'Reading glaciers ids based on the patches from {dir_fp}')
+        shp_fp = f'../data/s2_data/outlines_split/{dir_name}.shp'
+        logger.info(f'Reading the glaciers numbers of the current region based on the shapefile from {shp_fp}')
+        gdf = gpd.read_file(shp_fp)
+        gl_num_list_crt_region = set(gdf.GLACIER_NR.astype(str))
+        logger.info(f'#glaciers in the current region = {len(gl_num_list_crt_region)}')
+
+        dir_fp = Path(dm.rasters_dir)
+        logger.info(f'Reading the glaciers numbers based on the rasters from {dir_fp}')
         fp_list = list(dir_fp.glob('**/*.nc'))
-        gid_list = sorted(list(set([p.parent.parent.name for p in fp_list])))
+        gl_num_list_crt_dir = set([p.parent.name for p in fp_list])
+        logger.info(f'#glaciers in the current rasters dir = {len(gl_num_list_crt_dir)}')
 
-        logger.info(f'#glaciers = {len(gid_list)}')
+        gl_num_list_crt_dir &= gl_num_list_crt_region
+        logger.info(f'After keeping only the glaciers from the current region: #glaciers = {len(gl_num_list_crt_dir)}')
 
-        dl_list = dm.test_dataloaders_per_glacier(gid_list=gid_list)
+        dl_list = dm.test_dataloaders_per_glacier(gid_list=gl_num_list_crt_dir)
         for dl in tqdm(dl_list, desc='Testing per glacier'):
             trainer.test(model=task, dataloaders=dl)
 
