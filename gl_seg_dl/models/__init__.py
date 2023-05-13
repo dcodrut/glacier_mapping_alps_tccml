@@ -1,1 +1,1 @@
-from .unet.unet import UNet
+from .seg_model import SegModel

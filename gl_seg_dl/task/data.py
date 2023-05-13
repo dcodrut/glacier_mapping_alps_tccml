@@ -11,11 +11,13 @@ from tqdm import tqdm
 from gl_seg_dl.utils.sampling_utils import get_hdt_glacier_patches
 
 
-def extract_inputs(ds, fp):
-    s2_bands = ds.band_data.values[:13].astype(np.float32)  # TODO: parametrize the bands
+def extract_inputs(ds, fp, input_settings):
+    band_names = ds.band_data.attrs['long_name']
+    idx_bands = [band_names.index(b) for b in input_settings['s2_bands']]
+    s2_bands = ds.band_data.isel(band=idx_bands).values.astype(np.float32)
 
     # extract the provided nodata mask
-    mask_no_data = ds.band_data.values[ds.band_data.attrs['long_name'].index('FILL_MASK')] == 0
+    mask_no_data = ds.band_data.values[band_names.index('FILL_MASK')] == 0
 
     # include to the nodata mask any NaN pixel
     # (it happened once that a few pixels were missing only from the last band but the mask did not include them)
@@ -31,15 +33,22 @@ def extract_inputs(ds, fp):
         mask_na = mask_na_per_band.any(axis=0)
         mask_no_data |= mask_na
 
+    # include in the nodata mask the pixels covered by clouds or shadows
+    mask_clouds = ds.band_data.values[band_names.index('CLOUD_MASK')] == 1
+    mask_shadow = ds.band_data.values[band_names.index('SHADOW_MASK')] == 1
+    mask_no_data |= (mask_clouds | mask_shadow)
+
     data = {
         's2_bands': s2_bands,
         'mask_no_data': mask_no_data,
         'mask_crt_g': ds.mask_crt_g.values == 1,
         'mask_all_g': ds.mask_all_g_id.values != -1,
         'mask_debris_crt_g': ds.mask_debris_crt_g.values == 1,
-        'dem': ds.dem.values,
         'fp': str(fp),
     }
+
+    if input_settings['elevation']:
+        data['dem'] = ds.dem.values.astype(np.float32)
 
     return data
 
@@ -58,11 +67,12 @@ def standardize_inputs(data, stats_df, scale_each_band):
 
     # do the same for the static variables
     for v in ['dem']:
-        sdf = stats_df[stats_df.var_name == v]
-        mu = sdf.mu.values[0]
-        stddev = sdf.stddev.values[0]
-        data[v] -= mu
-        data[v] /= stddev
+        if v in data:
+            sdf = stats_df[stats_df.var_name == v]
+            mu = sdf.mu.values[0]
+            stddev = sdf.stddev.values[0]
+            data[v] -= mu
+            data[v] /= stddev
 
     return data
 
@@ -81,18 +91,23 @@ def minmax_scale_inputs(data, stats_df, scale_each_band):
 
     # do the same for the static variables
     for v in ['dem']:
-        sdf = stats_df[stats_df.var_name == v]
-        vmin = sdf.vmin.values[0]
-        vmax = sdf.vmax.values[0]
-        data[v] -= vmin
-        data[v] /= (vmax - vmin)
+        if v in data:
+            # fill in the missing values with the average
+            data[v][np.isnan(data[v])] = np.nanmean(data[v])
+
+            # apply the scaling
+            sdf = stats_df[stats_df.var_name == v]
+            vmin = sdf.vmin.values[0]
+            vmax = sdf.vmax.values[0]
+            data[v] -= vmin
+            data[v] /= (vmax - vmin)
 
     return data
 
 
 class GlSegPatchDataset(Dataset):
-    def __init__(self, folder=None, fp_list=None, standardize_data=False, minmax_scale_data=False, scale_each_band=True,
-                 data_stats_df=None):
+    def __init__(self, input_settings, folder=None, fp_list=None, standardize_data=False, minmax_scale_data=False,
+                 scale_each_band=True, data_stats_df=None):
         assert folder is not None or fp_list is not None
 
         if folder is not None:
@@ -104,18 +119,15 @@ class GlSegPatchDataset(Dataset):
             assert all([Path(fp).exists() for fp in fp_list])
             self.fp_list = fp_list
 
+        self.input_settings = input_settings
         self.standardize_data = standardize_data
         self.minmax_scale_data = minmax_scale_data
         self.scale_each_band = scale_each_band
         self.data_stats_df = data_stats_df
 
-    def __getitem__(self, idx):
-        # read the current file
-        fp = self.fp_list[idx]
-        ds = xr.open_dataset(fp, decode_coords='all')
-
+    def process_data(self, ds, fp):
         # extract the inputs
-        data = extract_inputs(ds=ds, fp=fp)
+        data = extract_inputs(ds=ds, fp=fp, input_settings=self.input_settings)
 
         # standardize/scale the inputs if needed
         if self.standardize_data or self.minmax_scale_data:
@@ -127,24 +139,34 @@ class GlSegPatchDataset(Dataset):
 
         return data
 
+    def __getitem__(self, idx):
+        # read the current file
+        fp = self.fp_list[idx]
+        nc = xr.open_dataset(fp, decode_coords='all')
+
+        data = self.process_data(ds=nc, fp=fp)
+
+        return data
+
     def __len__(self):
         return len(self.fp_list)
 
 
 class GlSegDataset(GlSegPatchDataset):
-    def __init__(self, fp):
+    def __init__(self, fp, **kwargs):
         self.fp = fp
-        super().__init__(folder=None, fp_list=[fp])
+        super().__init__(folder=None, fp_list=[fp], **kwargs)
 
         # get all possible patches for the glacier
-        self.nc = xr.open_dataset(fp, decode_coords='all')
+        self.nc = xr.open_dataset(fp, decode_coords='all').load()
         self.patches_df = get_hdt_glacier_patches(
             self.nc, patch_radius=128, sampling_step=64, add_center=False, add_centroid=True)
 
     def __getitem__(self, idx):
         patch_shp = self.patches_df.iloc[idx:idx + 1]
         nc_patch = self.nc.rio.clip(patch_shp.geometry)
-        data = extract_inputs(ds=nc_patch, fp=self.fp)
+
+        data = self.process_data(ds=nc_patch, fp=self.fp)
 
         # add information regarding the location of the patch w.r.t. the entire glacier
         data['patch_info'] = {k: patch_shp.iloc[0][k] for k in ['x_center', 'y_center', 'bounds_px']}
@@ -162,6 +184,7 @@ class GlSegDataModule(pl.LightningDataModule):
                  val_dir_name: str,
                  test_dir_name: str,
                  rasters_dir: str,
+                 input_settings: dict,
                  standardize_data: bool,
                  minmax_scale_data: bool,
                  scale_each_band: bool,
@@ -180,6 +203,7 @@ class GlSegDataModule(pl.LightningDataModule):
         self.val_dir_name = val_dir_name
         self.test_dir_name = test_dir_name
         self.rasters_dir = rasters_dir
+        self.input_settings = input_settings
         self.standardize_data = standardize_data
         self.minmax_scale_data = minmax_scale_data
         self.scale_each_band = scale_each_band
@@ -200,7 +224,7 @@ class GlSegDataModule(pl.LightningDataModule):
         self.data_stats_df = None
         if self.standardize_data or self.minmax_scale_data:
             data_stats_fp = Path(self.data_root_dir / data_stats_fn)
-            assert data_stats_fp.exists()
+            assert data_stats_fp.exists(), f'{data_stats_fp} not found'
 
             self.data_stats_df = pd.read_csv(data_stats_fp)
 
@@ -208,6 +232,7 @@ class GlSegDataModule(pl.LightningDataModule):
         if stage == 'fit' or stage is None:
             self.train_ds = GlSegPatchDataset(
                 folder=self.data_root_dir / self.train_dir_name,
+                input_settings=self.input_settings,
                 standardize_data=self.standardize_data,
                 minmax_scale_data=self.minmax_scale_data,
                 scale_each_band=self.scale_each_band,
@@ -215,6 +240,7 @@ class GlSegDataModule(pl.LightningDataModule):
             )
             self.valid_ds = GlSegPatchDataset(
                 folder=self.data_root_dir / self.val_dir_name,
+                input_settings=self.input_settings,
                 standardize_data=self.standardize_data,
                 minmax_scale_data=self.minmax_scale_data,
                 scale_each_band=self.scale_each_band,
@@ -223,6 +249,7 @@ class GlSegDataModule(pl.LightningDataModule):
         if stage == 'test':
             self.test_ds = GlSegPatchDataset(
                 folder=self.data_root_dir / self.test_dir_name,
+                input_settings=self.input_settings,
                 standardize_data=self.standardize_data,
                 minmax_scale_data=self.minmax_scale_data,
                 scale_each_band=self.scale_each_band,
@@ -243,7 +270,16 @@ class GlSegDataModule(pl.LightningDataModule):
 
         test_ds_list = []
         for fp in tqdm(cubes_fp, desc='Preparing datasets per glacier'):
-            test_ds_list.append(GlSegDataset(fp=fp))
+            test_ds_list.append(
+                GlSegDataset(
+                    fp=fp,
+                    input_settings=self.input_settings,
+                    standardize_data=self.standardize_data,
+                    minmax_scale_data=self.minmax_scale_data,
+                    scale_each_band=self.scale_each_band,
+                    data_stats_df=self.data_stats_df
+                )
+            )
 
         return test_ds_list
 
