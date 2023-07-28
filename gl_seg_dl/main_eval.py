@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from functools import partial
 from tqdm import tqdm
+import itertools
 
 # local imports
 import sys
@@ -63,6 +64,28 @@ def compute_stats(fp, mask_name='mask_crt_g', exclude_bad_pixels=True, return_ra
     stats['area_debris'] = area_debris
     stats['area_debris_recalled'] = area_debris_recalled
     stats['recall_debris'] = recall_debris
+
+    # compute the FPs for the non-glacierized area (where predictions are made)
+    mask_preds_exist = ~np.isnan(nc.pred.values)
+    mask_non_g = (nc.mask_all_g_id.values == -1) & mask_preds_exist & (~mask_exclude)
+    area_non_g = np.sum(mask_non_g) * f_area
+    mask_fp = preds & mask_non_g
+    area_fp = np.sum(mask_fp) * f_area
+    stats['area_non_g'] = area_non_g
+    stats['area_fp'] = area_fp
+
+    # compute the FPs for the non-glacierized area but only within a certain buffer
+    nc['mask_crt_g_b0'] = nc['mask_crt_g']
+    for b1, b2 in list(itertools.combinations(['b0', 'b10', 'b20', 'b50'], 2)):
+        mask_crt_b_interval = (nc[f'mask_crt_g_{b1}'].values == 0) & (nc[f'mask_crt_g_{b2}'].values == 1)
+        mask_non_g_crt_b = mask_non_g & mask_crt_b_interval
+        area_non_g_crt_b = np.sum(mask_non_g_crt_b) * f_area
+        mask_fp_crt_b = preds & mask_non_g_crt_b
+        area_fp_crt_b = np.sum(mask_fp_crt_b) * f_area
+        stats[f'area_non_g_{b1}_{b2}'] = area_non_g_crt_b
+        stats[f'area_fp_{b1}_{b2}'] = area_fp_crt_b
+
+    stats['s2_fn'] = nc.attrs['s2_fn']
 
     if not return_rasters:
         return stats
