@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from tqdm import tqdm
 
-from gl_seg_dl.utils.sampling_utils import get_hdt_glacier_patches
+from utils.sampling_utils import get_hdt_glacier_patches
 
 
 def extract_inputs(ds, fp, input_settings):

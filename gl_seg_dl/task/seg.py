@@ -7,7 +7,7 @@ import xarray as xr
 from pathlib import Path
 
 # local imports
-import gl_seg_dl.task.loss as losses
+from task import loss as losses
 
 
 class GlSegTask(pl.LightningModule):

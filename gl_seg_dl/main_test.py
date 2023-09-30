@@ -10,18 +10,13 @@ from tqdm import tqdm
 import logging
 
 # local imports
-import sys
-
-print(f'os.getcwd() = {os.getcwd()}')
-sys.path.insert(0, str(Path(os.getcwd(), '..').resolve()))
-
-from gl_seg_dl import models
-from gl_seg_dl.task.data import GlSegDataModule
-from gl_seg_dl.task.seg import GlSegTask
-from gl_seg_dl.utils.general import str2bool
+import models
+from task.data import GlSegDataModule
+from task.seg import GlSegTask
+from utils.general import str2bool
 
 
-def test_model(settings: dict, split: str, test_per_glacier: bool, checkpoint: str = None):
+def test_model(settings: dict, fold: str, test_per_glacier: bool, checkpoint: str = None):
     # Logger (console and TensorBoard)
     root_logger = logging.getLogger('pytorch_lightning')
     root_logger.setLevel(logging.INFO)
@@ -37,7 +32,7 @@ def test_model(settings: dict, split: str, test_per_glacier: bool, checkpoint: s
     dm.train_shuffle = False  # disable shuffling for the training dataloader
 
     # Model
-    model_class = getattr(models, settings['model']['model_class'])
+    model_class = getattr(models, settings['model']['class'])
     model = model_class(
         input_settings=settings['model']['inputs'] if 'inputs' in settings['model'] else None,
         training_settings=settings['model']['training_settings'] if 'training_settings' in settings['model'] else None,
@@ -47,7 +42,7 @@ def test_model(settings: dict, split: str, test_per_glacier: bool, checkpoint: s
 
     # Task
     task_params = settings['task']
-    task = GlSegTask(model=model, task_params=task_params, outdir=checkpoint.parent.parent)
+    task = GlSegTask(model=model, task_params=task_params, outdir=Path(checkpoint).parent.parent)
     logger.info(f'Loading model from {checkpoint}')
     if checkpoint is not None:  # allow using non-trainable models
         task.load_from_checkpoint(
@@ -68,16 +63,16 @@ def test_model(settings: dict, split: str, test_per_glacier: bool, checkpoint: s
         ds_name = Path(data_params['data_root_dir']).name
         root_outdir = Path(task.outdir) / 'output' / 'stats' / ds_name
 
-    assert split in ['s_train', 's_valid', 's_test']
-    logger.info(f'Testing for split = {split}')
+    assert fold in ['s_train', 's_valid', 's_test']
+    logger.info(f'Testing for fold = {fold}')
 
-    task.outdir = root_outdir / split
+    task.outdir = root_outdir / fold
     if not test_per_glacier:
-        assert split in ('s_train', 's_valid', 's_test')
-        dm.setup('test' if split == 's_test' else 'fit')
-        if split == 's_train':
+        assert fold in ('s_train', 's_valid', 's_test')
+        dm.setup('test' if fold == 's_test' else 'fit')
+        if fold == 's_train':
             dl = dm.train_dataloader()
-        elif split == 's_valid':
+        elif fold == 's_valid':
             dl = dm.val_dataloader()
         else:
             dl = dm.test_dataloader()
@@ -85,8 +80,9 @@ def test_model(settings: dict, split: str, test_per_glacier: bool, checkpoint: s
         results = trainer.validate(model=task, dataloaders=dl)
         logger.info(f'results = {results}')
     else:
-        dir_name = {'s_train': dm.train_dir_name, 's_valid': dm.val_dir_name, 's_test': dm.test_dir_name}[split]
-        shp_fp = f'../data/s2_data/outlines_split/{dir_name}.shp'
+        fold = {'s_train': dm.train_dir_name, 's_valid': dm.val_dir_name, 's_test': dm.test_dir_name}[fold]
+        split_name = str(checkpoint).split('split_')[1].split('/')[0]
+        shp_fp = f'../data/s2_data/outlines_split/split_{split_name}/{fold}.shp'
         logger.info(f'Reading the glaciers numbers of the current region based on the shapefile from {shp_fp}')
         gdf = gpd.read_file(shp_fp)
         gl_num_list_crt_region = set(gdf.GLACIER_NR.astype(str))
@@ -129,8 +125,8 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint_dir', type=str, metavar='path/to/checkpoint_dir',
                         help='a directory from which the model with the lowest L1 distance will be selected '
                              '(alternative to checkpoint_file)', default=None)
-    parser.add_argument('--split', type=str, metavar='s_train|s_valid|s_test', required=True,
-                        help='which subset to s_test on: either s_train, s_valid or s_test')
+    parser.add_argument('--fold', type=str, metavar='s_train|s_valid|s_test', required=True,
+                        help='which subset to test on: either s_train, s_valid or s_test')
     parser.add_argument('--test_per_glacier', type=str2bool, required=True,
                         help='whether to apply the model separately for each glacier instead of using the patches'
                              '(by generating in-memory all the patches)')
@@ -170,5 +166,5 @@ if __name__ == "__main__":
         settings=all_settings,
         checkpoint=checkpoint_file,
         test_per_glacier=args.test_per_glacier,
-        split=args.split
+        fold=args.fold
     )

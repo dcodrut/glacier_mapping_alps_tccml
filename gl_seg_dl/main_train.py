@@ -9,14 +9,9 @@ import yaml
 import json
 
 # local imports
-import sys
-
-print(f'os.getcwd() = {os.getcwd()}')
-sys.path.insert(0, str(Path(os.getcwd(), '..').resolve()))
-
-from gl_seg_dl import models
-from gl_seg_dl.task.data import GlSegDataModule
-from gl_seg_dl.task.seg import GlSegTask
+import models
+from task.data import GlSegDataModule
+from task.seg import GlSegTask
 
 # https://github.com/PyTorchLightning/pytorch-lightning/issues/5225
 if 'SLURM_NTASKS' in os.environ:

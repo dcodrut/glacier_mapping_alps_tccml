@@ -8,12 +8,6 @@ from functools import partial
 from tqdm import tqdm
 import itertools
 
-# local imports
-import sys
-
-print(f'os.getcwd() = {os.getcwd()}')
-sys.path.insert(0, str(Path(os.getcwd(), '..').resolve()))
-
 
 def compute_stats(fp, mask_name='mask_crt_g', exclude_bad_pixels=True, return_rasters=False):
     stats = {'fp': fp}
