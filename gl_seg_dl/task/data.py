@@ -191,7 +191,7 @@ class GlSegDataModule(pl.LightningDataModule):
                  standardize_data: bool,
                  minmax_scale_data: bool,
                  scale_each_band: bool,
-                 data_stats_fn: str,
+                 data_stats_fp: str,
                  train_batch_size: int = 16,
                  val_batch_size: int = 32,
                  test_batch_size: int = 32,
@@ -226,7 +226,7 @@ class GlSegDataModule(pl.LightningDataModule):
         # prepare the standardization constants if needed
         self.data_stats_df = None
         if self.standardize_data or self.minmax_scale_data:
-            data_stats_fp = Path(self.data_root_dir / data_stats_fn)
+            data_stats_fp = Path(data_stats_fp)
             assert data_stats_fp.exists(), f'{data_stats_fp} not found'
 
             self.data_stats_df = pd.read_csv(data_stats_fp)
@@ -269,7 +269,7 @@ class GlSegDataModule(pl.LightningDataModule):
 
         # filter the glaciers by id, if needed
         if gid_list is not None:
-            cubes_fp = list(filter(lambda f: f.parent.parent.name in gid_list, cubes_fp))
+            cubes_fp = list(filter(lambda f: f.parent.name in gid_list, cubes_fp))
 
         test_ds_list = []
         for fp in tqdm(cubes_fp, desc='Preparing datasets per glacier'):
