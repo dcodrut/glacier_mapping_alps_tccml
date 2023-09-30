@@ -48,7 +48,10 @@ def extract_inputs(ds, fp, input_settings):
     }
 
     if input_settings['elevation']:
-        data['dem'] = ds.dem.values.astype(np.float32)
+        dem = ds.dem.values.astype(np.float32)
+        # fill in the NAs with the average
+        dem[np.isnan(dem)] = np.mean(dem[~np.isnan(dem)])
+        data['dem'] = dem
 
     return data
 
