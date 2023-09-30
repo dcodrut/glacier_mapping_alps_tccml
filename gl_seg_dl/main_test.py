@@ -108,7 +108,7 @@ def test_model(settings: dict, split: str, test_per_glacier: bool, checkpoint: s
 
 def get_best_model_ckpt(checkpoint_dir, metric_name='val_loss_epoch', sort_method='min'):
     checkpoint_dir = Path(checkpoint_dir)
-    assert checkpoint_dir.exists()
+    assert checkpoint_dir.exists(), f'{checkpoint_dir} not found'
     assert sort_method in ('max', 'min')
 
     ckpt_list = sorted(list(checkpoint_dir.glob('*.ckpt')))
@@ -134,6 +134,11 @@ if __name__ == "__main__":
     parser.add_argument('--test_per_glacier', type=str2bool, required=True,
                         help='whether to apply the model separately for each glacier instead of using the patches'
                              '(by generating in-memory all the patches)')
+    parser.add_argument('--rasters_dir', type=str, required=False,
+                        help='directory on which to test the model, for the case when test_per_glacier is True; '
+                             'if not provided, the one from the config file is used'
+                        )
+
     args = parser.parse_args()
 
     # prepare the checkpoint
@@ -156,6 +161,10 @@ if __name__ == "__main__":
 
     with open(settings_fp, 'r') as fp:
         all_settings = yaml.load(fp, Loader=yaml.FullLoader)
+
+    # overwrite the raster directory from the config if needed
+    if args.rasters_dir is not None:
+        all_settings['data']['rasters_dir'] = args.rasters_dir
 
     test_model(
         settings=all_settings,
