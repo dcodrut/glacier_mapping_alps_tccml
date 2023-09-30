@@ -45,7 +45,7 @@ def compute_stats(fp, mask_name='mask_crt_g', exclude_bad_pixels=True, return_ra
     area_recalled = np.sum(mask & preds) * f_area
     recall = area_recalled / area if area > 0 else np.nan
 
-    stats['area'] = area
+    stats['area_ok'] = area
     stats['area_excluded'] = area_excluded
     stats['area_recalled'] = area_recalled
     stats['recall'] = recall
@@ -77,8 +77,41 @@ def compute_stats(fp, mask_name='mask_crt_g', exclude_bad_pixels=True, return_ra
         mask_fp_crt_b = preds & mask_non_g_crt_b
         area_fp_crt_b = np.sum(mask_fp_crt_b) * f_area
         stats[f'area_non_g_{b1}_{b2}'] = area_non_g_crt_b
+        stats[f'area_non_g_{b1}_{b2}_excluded'] = np.sum(mask_crt_b_interval & mask_preds_exist & mask_exclude) * f_area
         stats[f'area_fp_{b1}_{b2}'] = area_fp_crt_b
 
+    # estimate the altitude & location of the terminus
+    # first by the lower ice-predicted pixel (if it's not masked), then by the median of the lowest 30 pixels
+    # if there are multiple pixels with the same minimum altitude, use the average
+    nc_g = nc.where(nc.mask_crt_g == 1)
+    dem_pred_on = nc_g.dem.values.copy()
+    dem_pred_on[~preds] = np.nan
+    h_pred_on_sorted = np.sort(np.unique(dem_pred_on.flatten()))
+    h_pred_on_sorted = h_pred_on_sorted[~np.isnan(h_pred_on_sorted)]
+
+    for num_px_thr in [1, 30]:
+        if len(h_pred_on_sorted) > 0:  # it can happen that all the pixels are masked
+            i = 0
+            h_thr = h_pred_on_sorted[i]
+            while i < len(h_pred_on_sorted) - 1 and np.sum(dem_pred_on <= h_thr) < num_px_thr:
+                i += 1
+                h_thr = h_pred_on_sorted[i]
+        else:
+            h_thr = -1
+
+        # exclude the masked pixels; if all of them are masked, the result will be NaN
+        mask_lowest = (dem_pred_on <= h_thr)
+        mask_lowest[mask_exclude] = False
+
+        all_masked = (np.sum(mask_lowest) == 0)
+        idx = np.where(mask_lowest)
+        stats[f'term_h_{num_px_thr}_px'] = np.nan if all_masked else h_thr
+        stats[f'term_x_i_{num_px_thr}_px'] = np.nan if all_masked else int(np.median(idx[1]))
+        stats[f'term_y_i_{num_px_thr}_px'] = np.nan if all_masked else int(np.median(idx[0]))
+        stats[f'term_x_m_{num_px_thr}_px'] = np.nan if all_masked else int(np.median(nc.x.values[idx[1]]))
+        stats[f'term_y_m_{num_px_thr}_px'] = np.nan if all_masked else int(np.median(nc.y.values[idx[0]]))
+
+    # save the filename of the original S2 data
     stats['s2_fn'] = nc.attrs['s2_fn']
 
     if not return_rasters:
