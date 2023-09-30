@@ -75,7 +75,7 @@ class GlSegTask(pl.LightningModule):
 
         # summarize the metrics per glacier
         avg_tb_logs = {}
-        stats_per_g = df.groupby('gid').mean()
+        stats_per_g = df.groupby('gid').mean(numeric_only=True)
         for m in stats_per_g.columns:
             avg_tb_logs[f'{m}_{split_name}_epoch_avg_per_g'] = stats_per_g[m].mean()
 
@@ -150,7 +150,8 @@ class GlSegTask(pl.LightningModule):
         # show the stats
         with pd.option_context('display.max_rows', 10, 'display.max_columns', None, 'display.width', None):
             self._logger.info(f'validation scores stats:\n{df.describe()}')
-            self._logger.info(f'validation scores stats (per glacier):\n{df.groupby("gid").mean().describe()}')
+            self._logger.info(f'validation scores stats (per glacier):\n'
+                              f'{df.groupby("gid").mean(numeric_only=True).describe()}')
 
         # export the stats if needed
         if self.outdir is not None:
@@ -160,7 +161,7 @@ class GlSegTask(pl.LightningModule):
             df.to_csv(fp)
             self._logger.info(f'Stats exported to {str(fp)}')
             fp = self.outdir / 'stats_avg_per_glacier.csv'
-            df.groupby('gid').mean().to_csv(fp)
+            df.groupby('gid').mean(numeric_only=True).to_csv(fp)
             self._logger.info(f'Stats per glacier exported to {str(fp)}')
 
         # show the epoch as the x-coordinate
