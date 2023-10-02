@@ -38,7 +38,7 @@ logger:
   name: 'unet/split_4'
 
 trainer:
-  devices: [ 3 ]
+  devices: [ 0 ]
   accelerator: 'gpu'
 #  limit_train_batches: 8
 #  limit_val_batches: 4
