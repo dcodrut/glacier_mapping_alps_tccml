@@ -1,0 +1,60 @@
+data:
+  data_root_dir: '../data/s2_data/patches_orig_r_128_s_128/split_4'
+  train_dir_name: 'fold_train'
+  val_dir_name: 'fold_valid'
+  test_dir_name: 'fold_test'
+  rasters_dir: '../data/s2_data/rasters'
+  minmax_scale_data: False
+  standardize_data: True
+  scale_each_band: True
+  data_stats_fp: '../data/s2_data/aux_data/patches_orig_r_128_s_128/split_4/stats_train_patches_agg.csv'
+  train_batch_size: 16
+  val_batch_size: 32
+  test_batch_size: 32
+  num_workers: 16
+
+task:
+  seed: 42
+  loss:
+    name: 'MaskedDist'
+    args: {
+      distance_type: 'BCE'
+    }
+  optimization:
+    optimizer:
+      - name: 'SGD'
+        args:
+          lr: 0.01
+          nesterov: True
+          momentum: 0.95
+    lr_schedule:
+      - name: 'MultiStepLR'
+        args:
+          milestones: [ 10, 25 ]
+          gamma: 0.1
+
+logger:
+  save_dir: '../data/scratch/experiments_server'
+  name: 'unet/split_4'
+
+trainer:
+  devices: [ 3 ]
+  accelerator: 'gpu'
+#  limit_train_batches: 8
+#  limit_val_batches: 4
+  log_every_n_steps: 10
+  max_epochs: 50
+
+model:
+  class: 'SegModel'
+  name: 'Unet'
+  inputs:
+    s2_bands: [ 'B4', 'B3', 'B2', 'B8', 'B12']
+    elevation: True
+  args:
+    encoder_name: 'resnet34'
+    encoder_weights: 'imagenet'
+    encoder_depth: 5
+    activation: 'sigmoid'
+    decoder_use_batchnorm: False
+    decoder_attention_type: null
