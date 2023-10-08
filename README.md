@@ -1,10 +1,11 @@
 ## Tracking Glacier Area Changes in the Alps over 2015-2023 using Deep Learning
 
+![](./data/gif/one_glacier_per_country.gif "Our approach exemplified for one glacier in each country")
 
 ### Set up the python environment
-`conda env create -f environment.yml`  
-`conda activate glsegenv`  
-`cd gl_seg_dl`
+1. `conda env create -f environment.yml`  
+2. `conda activate glsegenv`  
+3. `cd gl_seg_dl`
 
 ### Data preparation
 
