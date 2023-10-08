@@ -1,4 +1,4 @@
-## Tracking Glacier Area Changes in the Alps over 2015-2023 using Deep Learning
+## Detailed Glacier Area Change Analysis in the European Alps with Deep Learning
 
 ![](./data/gif/one_glacier_per_country.gif "Our approach exemplified for one glacier in each country")
 
