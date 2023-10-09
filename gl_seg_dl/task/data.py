@@ -200,8 +200,6 @@ class GlSegDataModule(pl.LightningDataModule):
                  pin_memory: bool = False):
         super().__init__()
         self.data_root_dir = Path(data_root_dir)
-        assert self.data_root_dir.exists()
-
         self.train_dir_name = train_dir_name
         self.val_dir_name = val_dir_name
         self.test_dir_name = test_dir_name
