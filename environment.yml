@@ -1,0 +1,27 @@
+name: glsegenv
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - pip==23.0.1
+  - python==3.11.0
+  - cudatoolkit==11.7
+  - pip:
+      - torch==2.0.1
+      - torchvision==0.15.2
+      - segmentation-models-pytorch==0.3.3
+      - pytorch-lightning==2.0.9.post0
+      - tensorboard==2.14.1
+      - torchmetrics==1.2.0
+      - numpy==1.26.0
+      - pandas==2.1.1
+      - geopandas==0.14.0
+      - xarray==2023.9.0
+      - rioxarray==0.15.0
+      - h5netcdf==1.2.0
+      - tqdm==4.66.1
+      - matplotlib==3.8.0
+      - opencv-python==4.8.1.78
+      - protobuf==4.24.3
+      - pyproj==3.6.1
