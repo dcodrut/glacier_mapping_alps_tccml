@@ -9,6 +9,7 @@ import yaml
 import json
 
 # local imports
+import config as C
 import models
 from task.data import GlSegDataModule
 from task.seg import GlSegTask
@@ -86,10 +87,20 @@ def train_model(settings: dict):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--settings_fp', type=str, metavar='path/to/settings.yaml', help='yaml with all the settings',
-                        required=True)
-    parser.add_argument('--seed', type=int, help='training seed (if given, it overwrites the one from the yaml config)',
-                        default=None, required=False)
+    parser.add_argument(
+        '--settings_fp',
+        type=str, metavar='path/to/settings.yaml', help='yaml with all the settings', required=True)
+    parser.add_argument(
+        '--seed',
+        type=int, help='training seed (if not given, the one from the config is used)', default=None, required=False)
+    parser.add_argument(
+        '--split',
+        type=str, help='training split (if not given, the one from the config is used)', default=None, required=False,
+        choices={f"split_{i + 1}" for i in range(C.S2.NUM_CV_FOLDS)}
+    )
+    parser.add_argument(
+        '--gpu_id',
+        type=int, help='GPU ID (if not given, the one from the config is used)', default=None, required=False)
     args = parser.parse_args()
 
     # read the settings
@@ -100,5 +111,16 @@ if __name__ == '__main__':
     # overwrite the seed if provided
     if args.seed is not None:
         all_settings['seed'] = args.seed
+
+    # overwrite the split if provided
+    if args.split is not None:
+        all_settings['data']['data_root_dir'] = str(Path(all_settings['data']['data_root_dir']).parent / args.split)
+        all_settings['data']['data_stats_fp'] = str(
+            Path(all_settings['data']['data_stats_fp']).parent.parent / args.split / 'stats_train_patches_agg.csv')
+        all_settings['logger']['name'] = str(Path(all_settings['logger']['name']).parent / args.split)
+
+    # overwrite the gpu id if provided
+    if args.gpu_id is not None:
+        all_settings['trainer']['devices'] = [args.gpu_id]
 
     train_model(all_settings)
