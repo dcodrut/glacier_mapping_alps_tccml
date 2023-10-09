@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from tqdm import tqdm
 
-from utils.sampling_utils import get_hdt_glacier_patches
+from utils.sampling_utils import get_patches_gdf
 
 
 def extract_inputs(ds, fp, input_settings):
@@ -162,8 +162,8 @@ class GlSegDataset(GlSegPatchDataset):
 
         # get all possible patches for the glacier
         self.nc = xr.open_dataset(fp, decode_coords='all').load()
-        self.patches_df = get_hdt_glacier_patches(
-            self.nc, patch_radius=128, sampling_step=64, add_center=False, add_centroid=True)
+        self.patches_df = get_patches_gdf(
+            self.nc, patch_radius=128, sampling_step=64, add_center=False, add_centroid=True, add_extremes=True)
 
     def __getitem__(self, idx):
         patch_shp = self.patches_df.iloc[idx:idx + 1]

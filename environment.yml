@@ -25,3 +25,4 @@ dependencies:
       - opencv-python==4.8.1.78
       - protobuf==4.24.3
       - pyproj==3.6.1
+      - netCDF4==1.6.4
