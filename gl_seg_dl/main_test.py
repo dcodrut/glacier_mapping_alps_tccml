@@ -134,7 +134,9 @@ if __name__ == "__main__":
                         help='directory on which to test the model, for the case when test_per_glacier is True; '
                              'if not provided, the one from the config file is used'
                         )
-
+    parser.add_argument('--gpu_id', type=int, default=None, required=False
+                        , help='GPU ID (if not given, the one from the config is used)'
+                        )
     args = parser.parse_args()
 
     # prepare the checkpoint
@@ -157,6 +159,10 @@ if __name__ == "__main__":
 
     with open(settings_fp, 'r') as fp:
         all_settings = yaml.load(fp, Loader=yaml.FullLoader)
+
+    # overwrite the gpu id if provided
+    if args.gpu_id is not None:
+        all_settings['trainer']['devices'] = [args.gpu_id]
 
     # overwrite the raster directory from the config if needed
     if args.rasters_dir is not None:
