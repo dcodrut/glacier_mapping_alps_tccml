@@ -31,6 +31,10 @@ class GlSegTask(pl.LightningModule):
 
         self.outdir = outdir
 
+        # initialize the train/val metrics accumulators
+        self.training_step_outputs = []
+        self.validation_step_outputs = []
+
     def forward(self, batch):
         return self.model(batch)
 
@@ -104,18 +108,23 @@ class GlSegTask(pl.LightningModule):
 
         res = {'loss': loss.mean(), 'metrics': val_metrics_samplewise, 'filepaths': batch['fp']}
 
+        self.training_step_outputs.append(res)
+
         return res
 
     def on_train_epoch_start(self):
         # https://github.com/PyTorchLightning/pytorch-lightning/issues/2189
         print('\n')
 
-    def training_epoch_end(self, train_step_outputs):
-        avg_tb_logs, df = self.aggregate_step_metrics(train_step_outputs, split_name='train')
+    def on_train_epoch_end(self):
+        avg_tb_logs, df = self.aggregate_step_metrics(self.training_step_outputs, split_name='train')
 
         # show the epoch as the x-coordinate
         avg_tb_logs['step'] = float(self.current_epoch)
         self.log_dict(avg_tb_logs, on_step=False, on_epoch=True, sync_dist=True)
+
+        # clear the accumulator
+        self.training_step_outputs.clear()
 
     def validation_step(self, batch, batch_idx):
         y_pred = self(batch)
@@ -141,11 +150,12 @@ class GlSegTask(pl.LightningModule):
         self.log_dict(tb_logs, on_epoch=True, on_step=True, batch_size=len(y_true), sync_dist=True)
 
         res = {'metrics': val_metrics_samplewise, 'filepaths': batch['fp']}
+        self.validation_step_outputs.append(res)
 
         return res
 
-    def validation_epoch_end(self, validation_step_outputs):
-        avg_tb_logs, df = self.aggregate_step_metrics(validation_step_outputs, split_name='val')
+    def on_validation_epoch_end(self):
+        avg_tb_logs, df = self.aggregate_step_metrics(self.validation_step_outputs, split_name='val')
 
         # show the stats
         with pd.option_context('display.max_rows', 10, 'display.max_columns', None, 'display.width', None):
@@ -167,6 +177,9 @@ class GlSegTask(pl.LightningModule):
         # show the epoch as the x-coordinate
         avg_tb_logs['step'] = float(self.current_epoch)
         self.log_dict(avg_tb_logs, on_step=False, on_epoch=True, sync_dist=True)
+
+        # clear the accumulator
+        self.validation_step_outputs.clear()
 
     def test_step(self, batch, batch_idx):
         y_pred = self(batch)
