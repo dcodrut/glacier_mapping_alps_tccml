@@ -34,6 +34,7 @@ class GlSegTask(pl.LightningModule):
         # initialize the train/val metrics accumulators
         self.training_step_outputs = []
         self.validation_step_outputs = []
+        self.test_step_outputs = []
 
     def forward(self, batch):
         return self.model(batch)
@@ -196,11 +197,14 @@ class GlSegTask(pl.LightningModule):
         res = {'metrics': val_metrics_samplewise, 'filepaths': batch['fp']}
         res['patch_info'] = batch['patch_info']
         res['preds'] = y_pred
+
+        self.test_step_outputs.append(res)
+
         return res
 
-    def test_epoch_end(self, outputs):
+    def on_test_epoch_end(self):
         # collect all filepaths
-        filepaths = [y for x in outputs for y in x['filepaths']]
+        filepaths = [y for x in self.test_step_outputs for y in x['filepaths']]
 
         # ensure that all the predictions are for the same glacier
         if len(set(filepaths)) > 1:
@@ -211,9 +215,9 @@ class GlSegTask(pl.LightningModule):
         nc = xr.open_dataset(cube_fp, decode_coords='all')
         preds_acc = torch.zeros(nc.mask_crt_g.shape).to(self.device)
         preds_cnt = torch.zeros(size=preds_acc.shape).to(self.device)
-        for j in range(len(outputs)):
-            preds = outputs[j]['preds']
-            patch_infos = outputs[j]['patch_info']
+        for j in range(len(self.test_step_outputs)):
+            preds = self.test_step_outputs[j]['preds']
+            patch_infos = self.test_step_outputs[j]['patch_info']
 
             batch_size = preds.shape[0]
             for i in range(batch_size):
@@ -244,3 +248,6 @@ class GlSegTask(pl.LightningModule):
         cube_pred_fp.unlink(missing_ok=True)
         nc_pred.to_netcdf(cube_pred_fp)
         self._logger.info(f'Cube with predictions exported to {cube_pred_fp}')
+
+        # clear the accumulator
+        self.test_step_outputs.clear()
