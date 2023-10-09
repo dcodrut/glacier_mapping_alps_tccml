@@ -1,4 +1,3 @@
-import os
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -10,13 +9,14 @@ from tqdm import tqdm
 import logging
 
 # local imports
+import config as C
 import models
 from task.data import GlSegDataModule
 from task.seg import GlSegTask
 from utils.general import str2bool
 
 
-def test_model(settings: dict, fold: str, test_per_glacier: bool, checkpoint: str = None):
+def test_model(settings, fold, test_per_glacier=False, checkpoint=None, dir_outlines_split=None):
     # Logger (console and TensorBoard)
     root_logger = logging.getLogger('pytorch_lightning')
     root_logger.setLevel(logging.INFO)
@@ -82,11 +82,11 @@ def test_model(settings: dict, fold: str, test_per_glacier: bool, checkpoint: st
     else:
         fold = {'s_train': dm.train_dir_name, 's_valid': dm.val_dir_name, 's_test': dm.test_dir_name}[fold]
         split_name = str(checkpoint).split('split_')[1].split('/')[0]
-        shp_fp = f'../data/s2_data/outlines_split/split_{split_name}/{fold}.shp'
-        logger.info(f'Reading the glaciers numbers of the current region based on the shapefile from {shp_fp}')
+        shp_fp = Path(dir_outlines_split) / f'split_{split_name}' / f'{fold}.shp'
+        logger.info(f'Reading the glaciers IDs of the split = {split_name} based on the shapefile from {shp_fp}')
         gdf = gpd.read_file(shp_fp)
-        gl_num_list_crt_region = set(gdf.GLACIER_NR.astype(str))
-        logger.info(f'#glaciers in the current region = {len(gl_num_list_crt_region)}')
+        gl_num_list_crt_split = set(gdf.GLACIER_NR.astype(str))
+        logger.info(f'#glaciers in the current split = {len(gl_num_list_crt_split)}')
 
         dir_fp = Path(dm.rasters_dir)
         logger.info(f'Reading the glaciers numbers based on the rasters from {dir_fp}')
@@ -94,8 +94,8 @@ def test_model(settings: dict, fold: str, test_per_glacier: bool, checkpoint: st
         gl_num_list_crt_dir = set([p.parent.name for p in fp_list])
         logger.info(f'#glaciers in the current rasters dir = {len(gl_num_list_crt_dir)}')
 
-        gl_num_list_crt_dir &= gl_num_list_crt_region
-        logger.info(f'After keeping only the glaciers from the current region: #glaciers = {len(gl_num_list_crt_dir)}')
+        gl_num_list_crt_dir &= gl_num_list_crt_split
+        logger.info(f'After keeping only the glaciers from the current split: #glaciers = {len(gl_num_list_crt_dir)}')
 
         dl_list = dm.test_dataloaders_per_glacier(gid_list=gl_num_list_crt_dir)
         for dl in tqdm(dl_list, desc='Testing per glacier'):
@@ -164,13 +164,18 @@ if __name__ == "__main__":
     if args.gpu_id is not None:
         all_settings['trainer']['devices'] = [args.gpu_id]
 
-    # overwrite the raster directory from the config if needed
+    # set the raster directory to the command line argument if given, otherwise use the inference dirs from the config
     if args.rasters_dir is not None:
-        all_settings['data']['rasters_dir'] = args.rasters_dir
+        infer_dir_list = [args.rasters_dir]
+    else:
+        infer_dir_list = C.S2.DIRS_INFER
 
-    test_model(
-        settings=all_settings,
-        checkpoint=checkpoint_file,
-        test_per_glacier=args.test_per_glacier,
-        fold=args.fold
-    )
+    for infer_dir in infer_dir_list:
+        all_settings['data']['rasters_dir'] = infer_dir
+        test_model(
+            settings=all_settings,
+            checkpoint=checkpoint_file,
+            test_per_glacier=args.test_per_glacier,
+            fold=args.fold,
+            dir_outlines_split=C.S2.DIR_OUTLINES_SPLIT
+        )

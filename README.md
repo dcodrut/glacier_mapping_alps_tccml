@@ -20,3 +20,4 @@
 
 #### Model training & testing
 1. Train the five models: `bash scripts/train.sh` (by default it runs on a single GPU; check the bash script for running on multiple GPUs)
+2. Apply model on each glacier both on the inventory images and the 2023 ones: `bash scripts/infer.sh`

@@ -12,8 +12,10 @@ class S2:
     NUM_CV_FOLDS = 5
     VALID_FRACTION = 0.15
     DIR_GL_RASTERS_INV = f'{DIR}/rasters_orig'
-    DIR_GL_RASTERS_2023 = f'{DIR}/rasters_2023'
     MIN_GLACIER_AREA = 0.1  # km2
+    DIR_GL_RASTERS_2023 = f'{DIR}/rasters_2023'
+    DIRS_INFER = [DIR_GL_RASTERS_INV, DIR_GL_RASTERS_2023]  # directories on which to make glacier-wide inferences
+    NUM_CORES_EVAL = 16
 
     # patch sampling settings
     PATCH_RADIUS = 128
