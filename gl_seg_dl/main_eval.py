@@ -1,4 +1,4 @@
-import os
+from argparse import ArgumentParser
 from pathlib import Path
 import multiprocessing
 import xarray as xr
@@ -7,6 +7,9 @@ import pandas as pd
 from functools import partial
 from tqdm import tqdm
 import itertools
+
+# local imports
+import config as C
 
 
 def compute_stats(fp, mask_name='mask_crt_g', exclude_bad_pixels=True, return_rasters=False):
@@ -128,37 +131,47 @@ def compute_stats(fp, mask_name='mask_crt_g', exclude_bad_pixels=True, return_ra
 
 
 if __name__ == "__main__":
-    num_cores = 32
-    ds_name = 'rasters_orig'
-    model_output_dir = '../data/scratch/experiments_server/unet/exp_02_bands/version_52/output'
-    for year in [2015 + i for i in range(8)]:
-        ds_name = f'rasters_{year}'
-        res_dir_root = Path(model_output_dir, 'preds', ds_name)
-        stats_dir_root = Path(model_output_dir, 'stats', ds_name)
-        assert res_dir_root.exists()
+    parser = ArgumentParser()
+    parser.add_argument(
+        '--inference_dir', type=str, metavar='path/to/inference_dir', required=True,
+        help='directory where the model predictions are stored',
+    )
+
+    args = parser.parse_args()
+    inference_dir_root = Path(args.inference_dir)
+    print(f'inference_dir_root = {inference_dir_root}')
+    assert inference_dir_root.exists()
+
+    stats_dir_root = Path(inference_dir_root.parent.parent, 'stats', inference_dir_root.name)
+
+    for fold in ('s_train', 's_valid', 's_test'):
+        preds_dir = inference_dir_root / fold
+        fp_list = list(preds_dir.glob('**/*.nc'))
+        print(f'fold = {fold}; #glaciers = {len(fp_list)}')
+        if len(fp_list) == 0:
+            print(f'No predictions found for fold = {fold}. Skipping.')
+            continue
 
         for mask_name in ('mask_crt_g', 'mask_crt_g_b20'):
             for exclude_bad_pixels in (True, False):
-                for split in ('s_train', 's_valid', 's_test'):
-                    preds_dir = res_dir_root / split
-                    fp_list = list(preds_dir.glob('**/*.nc'))
-                    print(f'ds_name = {ds_name}; split = {split}; #glaciers = {len(fp_list)}')
-                    if len(fp_list) == 0:
-                        print(f'No rasters found for split = {split}. Skipping.')
-                        continue
 
-                    _compute_stats = partial(compute_stats, exclude_bad_pixels=exclude_bad_pixels, mask_name=mask_name)
+                _compute_stats = partial(
+                    compute_stats,
+                    exclude_bad_pixels=exclude_bad_pixels,
+                    mask_name=mask_name
+                )
 
-                    with multiprocessing.Pool(num_cores) as pool:
-                        all_metrics = []
-                        for metrics in tqdm(
-                                pool.imap_unordered(_compute_stats, fp_list, chunksize=1), total=len(fp_list),
-                                desc=f'Computing evaluation metrics'):
-                            all_metrics.append(metrics)
-                        metrics_df = pd.DataFrame.from_records(all_metrics)
+                with multiprocessing.Pool(C.S2.NUM_CORES_EVAL) as pool:
+                    all_metrics = []
+                    for metrics in tqdm(
+                            pool.imap_unordered(_compute_stats, fp_list, chunksize=1), total=len(fp_list),
+                            desc=f'Computing evaluation metrics '
+                                 f'(exclude_bad_pixels = {exclude_bad_pixels}; mask_name = {mask_name})'):
+                        all_metrics.append(metrics)
+                    metrics_df = pd.DataFrame.from_records(all_metrics)
 
-                        stats_fp = stats_dir_root / split / f'stats_excl_{exclude_bad_pixels}_{mask_name}.csv'
-                        stats_fp.parent.mkdir(parents=True, exist_ok=True)
-                        metrics_df = metrics_df.sort_values('fp')
-                        metrics_df.to_csv(stats_fp, index=False)
-                        print(f'Evaluation metrics exported to {stats_fp}')
+                    stats_fp = stats_dir_root / fold / f'stats_excl_{exclude_bad_pixels}_{mask_name}.csv'
+                    stats_fp.parent.mkdir(parents=True, exist_ok=True)
+                    metrics_df = metrics_df.sort_values('fp')
+                    metrics_df.to_csv(stats_fp, index=False)
+                    print(f'Evaluation metrics exported to {stats_fp}')
