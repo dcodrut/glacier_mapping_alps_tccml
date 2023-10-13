@@ -44,6 +44,7 @@ trainer:
 #  limit_val_batches: 4
   log_every_n_steps: 10
   max_epochs: 50
+  deterministic: True
 
 model:
   class: 'SegModel'

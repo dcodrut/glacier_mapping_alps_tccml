@@ -36,7 +36,7 @@ def train_model(settings: dict):
 
     # fix the seed
     seed = settings['task']['seed']
-    pl.seed_everything(seed)
+    pl.seed_everything(seed, workers=True)
     logger.info(f'Initial settings: {settings}')
 
     # Data
