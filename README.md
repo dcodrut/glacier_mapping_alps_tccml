@@ -12,7 +12,8 @@
 ### Reproduce the results
 #### Data downloading:
 1. Download the glacier outlines: `bash ./scripts/download_outlines.sh`
-2. Download the glacier rasters: `TODO` (An FTP link will be made available after publication).
+2. Download the glacier rasters (stored here: https://huggingface.co/datasets/dcodrut/glacier_mapping_alps): `bash ./scripts/download_data.sh`  
+   The archived rasters have ~3Gb for each year (inventory one & 2023). After extracting the NetCDF rasters, we will need 20Gb for each year.
 
 #### Data processing:
 1. Cross-validation splits & patch sampling: `python main_data_prep.py`
