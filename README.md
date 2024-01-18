@@ -1,4 +1,6 @@
 ## Detailed Glacier Area Change Analysis in the European Alps with Deep Learning
+#### @NeurIPS 2023 Workshop on Tackling Climate Change with Machine Learning
+#### For the paper and presentation please check the [project page](https://www.climatechange.ai/papers/neurips2023/45).
 
 ![](./data/gif/one_glacier_per_country.gif "Our approach exemplified for one glacier in each country")
 
